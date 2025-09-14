@@ -19,6 +19,12 @@ if (!process.env.REPLICATE_API_TOKEN) {
   console.warn('⚠️  REPLICATE_API_TOKEN не задан. Перед запуском: export REPLICATE_API_TOKEN="..."');
 }
 
+// Хелпер: Buffer -> data:URL
+function bufferToDataUrl(buffer, mime = 'image/png') {
+  return `data:${mime};base64,${buffer.toString('base64')}`;
+}
+
+
 // Стили → промпты
 const STYLE_PROMPTS = {
   pencil:           'pencil sketch style, clean lines, realistic shading, subtle paper texture',
@@ -48,9 +54,60 @@ async function urlToDataUrl(u) {
 
 app.post('/api/transform', upload.array('photos'), async (req, res) => {
   try {
-    const style = (req.body.style || 'photo_real');
-    const userPrompt = (req.body.prompt || '').trim();
+    // Безопасное чтение полей
+    const body = req.body || {};
+    const style = body.style || 'photo_real';
+    const userPrompt = (body.prompt || '').trim();
     const prompt = userPrompt || (STYLE_PROMPTS[style] || STYLE_PROMPTS.photo_real);
+
+    // Валидируем файлы
+    if (!req.files || req.files.length === 0) {
+      return res.status(400).json({ error: 'Нет файлов (ожидались поле "photos" в multipart/form-data)' });
+    }
+
+    // Готовим входы для модели (data:URL на основе загруженных файлов)
+    const image_input = req.files.map(f => bufferToDataUrl(f.buffer, f.mimetype || 'image/png'));
+
+    // Проверяем токен на сервере
+    if (!process.env.REPLICATE_API_TOKEN) {
+      return res.status(500).json({ error: 'REPLICATE_API_TOKEN не задан на сервере' });
+    }
+
+    // Вызов модели Replicate (google/nano-banana)
+    const output = await replicate.run("google/nano-banana", {
+      input: { prompt, image_input }
+    });
+
+    const urls = await normalizeOutputs(output);
+    if (!urls.length) {
+      return res.status(502).json({ error: 'Пустой ответ от модели' });
+    }
+
+    // Скачиваем ссылки и отдаём фронту как dataURL
+    const images = [];
+    for (let i = 0; i < urls.length; i++) {
+      try {
+        const dataUrl = await urlToDataUrl(urls[i]);
+        images.push({
+          filename: (req.files?.[i]?.originalname || `image-${i + 1}`) + '.png',
+          dataUrl
+        });
+      } catch (e) {
+        console.error('fetch image error:', e);
+      }
+    }
+
+    if (!images.length) {
+      return res.status(502).json({ error: 'Не удалось получить изображения из ответа модели' });
+    }
+
+    return res.json({ images });
+  } catch (err) {
+    console.error('transform error:', err);
+    return res.status(500).json({ error: err.message || String(err) });
+  }
+});
+
 
     // Собираем картинки
     const image_input = [];
