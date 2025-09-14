@@ -46,7 +46,7 @@
       width:100%;
     }
     .result-card{background:#fbfbfb;border:1px solid var(--line);border-radius:12px;overflow:hidden;padding:6px;text-align:center}
-    .result-card a{display:block;text-decoration:none}
+    .result-card .open{display:block;text-decoration:none;cursor:pointer}
     .result-card img{width:100%;height:auto;display:block}
 
     .top-actions{display:flex;gap:8px}
@@ -69,7 +69,7 @@
   <div class="app">
     <header>
       <h1>Photo-Assistant — преобразователь фото</h1>
-      <div class="muted">Загрузите фото — выберите стиль — при необходимости добавьте описание — нажмите «Сгенерировать»</div>
+      <div class="muted">Загрузите фото — выберите стиль — при желании добавьте описание — нажмите «Сгенерировать»</div>
     </header>
 
     <div class="grid">
@@ -163,6 +163,7 @@
 
     let files = [];        // [{file, name, url}] — уже ориентированные, если получилось
     let resultsData = [];  // { name, blobUrl }
+    let pendingAdds = 0;   // сколько файлов ещё «готовится»
 
     // ---------- IndexedDB
     const DB_NAME = 'photoAssistant';
@@ -235,13 +236,13 @@
     ['dragover','drop'].forEach(evt => window.addEventListener(evt, e=>{ e.preventDefault(); }));
     ;['dragenter','dragover'].forEach(evt=>dropzone.addEventListener(evt,e=>{e.preventDefault();e.stopPropagation();dropzone.style.borderColor='#8fa6bb'}));
     ;['dragleave','dragend','drop'].forEach(evt=>dropzone.addEventListener(evt,e=>{e.preventDefault();e.stopPropagation();dropzone.style.borderColor='var(--drop-dash)'}));
-    dropzone.addEventListener('drop',e=> {
+    dropzone.addEventListener('drop',async e=> {
       try{
         const list = e.dataTransfer && (e.dataTransfer.items || e.dataTransfer.files);
-        addFromAny(list);
+        await addFromAny(list); // ждём, пока всё добавится
       }catch(err){ showError('Не удалось обработать перетаскивание: '+ (err.message||err)); }
     });
-    fileInput.addEventListener('change',e=> addFromAny(e.target.files));
+    fileInput.addEventListener('change',async e=> { await addFromAny(e.target.files); });
 
     clearBtn.onclick=()=>{
       files.forEach(f=>f.url && URL.revokeObjectURL(f.url));
@@ -275,6 +276,13 @@
 
     generateBtn.onclick=async()=>{
       if(files.length===0){alert('Сначала загрузите фото');return;}
+
+      // ждём окончания подготовки всех файлов
+      if (pendingAdds > 0){
+        progressEl.style.display='block'; progressEl.textContent = 'Подготовка файлов…';
+        while (pendingAdds > 0) { await new Promise(r=>setTimeout(r,120)); }
+      }
+
       results.innerHTML=''; resultsData=[];
       progressEl.style.display='block'; progressEl.textContent = 'Отправляю на сервер…';
       try{
@@ -309,9 +317,7 @@
 
     // ---------- ОРИЕНТАЦИЯ: нормализуем файл (если возможно)
     async function normalizeOrientationFile(file){
-      // Попробуем создать bitmap с учётом EXIF и перерисовать в canvas
       try{
-        // Safari/Chrome/Firefox: createImageBitmap поддерживается широко, но HEIC может не поддерживаться
         const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
         const canv = document.createElement('canvas');
         canv.width = bmp.width;
@@ -319,29 +325,27 @@
         const ctx = canv.getContext('2d');
         ctx.drawImage(bmp, 0, 0);
 
-        // Выберем формат вывода: для JPEG остаёмся JPEG, иначе — PNG
+        // JPEG -> JPEG, остальное -> PNG
         let outType = 'image/png';
         if (/jpe?g$/i.test(file.name) || /image\/jpe?g/i.test(file.type)) {
           outType = 'image/jpeg';
         }
 
         const blob = await new Promise(res=>canv.toBlob(res, outType, 0.95));
-        if (!blob) return file; // fallback
+        if (!blob) return file;
 
         const ext = outType === 'image/jpeg' ? '.jpg' : '.png';
         const base = (file.name || 'image').replace(/\.(heic|heif|png|jpe?g|webp|gif|bmp|avif)$/i,'');
         const orientedName = base + ext;
 
-        // File из Blob чтобы не потерять имя (не все браузеры поддерживают File, но современные — да)
-        const orientedFile = new File([blob], orientedName, { type: outType, lastModified: Date.now() });
-        return orientedFile;
+        return new File([blob], orientedName, { type: outType, lastModified: Date.now() });
       }catch(e){
-        // если что-то пошло не так — вернём исходный файл
-        return file;
+        return file; // fallback
       }
     }
 
-    function addFromAny(src){
+    // ДОБАВЛЕНИЕ ФАЙЛОВ (с ожиданием завершения)
+    async function addFromAny(src){
       try{
         let arr = [];
         if(!src) return;
@@ -352,25 +356,37 @@
           arr = Array.from(src).map(x=>x.getAsFile()).filter(Boolean);
         }
         if(!arr.length){ showError('Не найдено файлов изображений'); return; }
+
         const allowed = ['image/jpeg','image/png','image/webp','image/gif','image/bmp','image/avif','image/heic','image/heif'];
-        // Обрабатываем асинхронно — с нормализацией ориентации по очереди
-        (async ()=>{
-          for (const f of arr){
-            const isImg = (f.type && f.type.startsWith('image/')) || allowed.includes(f.type) || /\.(jpe?g|png|webp|gif|bmp|avif|heic|heif)$/i.test(f.name||'');
-            if(!isImg) continue;
 
-            const oriented = await normalizeOrientationFile(f);
-            const url = URL.createObjectURL(oriented);
-            const rec = {file: oriented, name: oriented.name, url};
-            files.push(rec);
+        pendingAdds += arr.length;
+        generateBtn.disabled = true;
 
-            const d=document.createElement('div'); d.className='thumb';
-            const im=new Image(); im.src=url; im.alt=oriented.name; d.appendChild(im);
-            thumbs.appendChild(d);
-          }
-          updateFilesCount();
-        })();
-      }catch(err){ showError('addFromAny: '+(err.message||err)); }
+        for (const f of arr){
+          const isImg = (f.type && f.type.startsWith('image/')) || allowed.includes(f.type) || /\.(jpe?g|png|webp|gif|bmp|avif|heic|heif)$/i.test(f.name||'');
+          if(!isImg){ pendingAdds--; continue; }
+
+          const oriented = await normalizeOrientationFile(f);
+          const url = URL.createObjectURL(oriented);
+          const rec = {file: oriented, name: oriented.name, url};
+          files.push(rec);
+
+          const d=document.createElement('div'); d.className='thumb';
+          const im=new Image(); im.src=url; im.alt=oriented.name; d.appendChild(im);
+          thumbs.appendChild(d);
+
+          pendingAdds--;
+        }
+
+        if (pendingAdds <= 0){
+          generateBtn.disabled = false;
+        }
+        updateFilesCount();
+      }catch(err){
+        pendingAdds = 0;
+        generateBtn.disabled = false;
+        showError('addFromAny: '+(err.message||err));
+      }
     }
 
     function triggerDownload(href,filename){
@@ -400,19 +416,25 @@
       return await new Promise(r=>canv.toBlob(r,'image/png'));
     }
 
+    // ——— карточка результата: ПРОГРАММНОЕ открытие по клику (чтобы не скачивало на десктопах)
     function addResultCardFromBlobUrl(blobUrl, filename){
       const cleanBase = (filename || 'image').replace(/\.png$/i,'');
-      const a=document.createElement('a');
-      a.href = blobUrl;
-      a.target = '_blank';
-      a.rel = 'noopener';
+
       const img=document.createElement('img');
       img.src = blobUrl;
       img.alt = cleanBase;
 
+      const openLink = document.createElement('a');
+      openLink.href = '#';
+      openLink.className = 'open';
+      openLink.appendChild(img);
+      openLink.addEventListener('click', (e)=>{
+        e.preventDefault();
+        try{ window.open(blobUrl, '_blank', 'noopener'); }catch(_){}
+      });
+
       const card=document.createElement('div'); card.className='result-card';
-      a.appendChild(img);
-      card.appendChild(a);
+      card.appendChild(openLink);
       results.appendChild(card);
 
       resultsData.push({ name: cleanBase+'.png', blobUrl });
