@@ -7,54 +7,50 @@
   <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
   <style>
     :root{
-      --bg: #f6f3ee;
-      --card: #ffffff;
-      --ink: #1f2328;
-      --muted: #6b7280;
-      --line: #e5e7eb;
-      --accent: #3a5a78;
-      --accent-ink: #ffffff;
-      --drop-dash: #c9cfd6;
+      --bg:#f6f3ee; --card:#fff; --ink:#1f2328; --muted:#6b7280; --line:#e5e7eb;
+      --accent:#3a5a78; --accent-ink:#fff; --drop-dash:#c9cfd6;
     }
     *{box-sizing:border-box}
     html,body{height:100%}
-    body {font-family: ui-sans-serif, system-ui, -apple-system, "SF Pro", Roboto, Arial, sans-serif; color:var(--ink); background:var(--bg); margin:0}
-    .app {max-width: 980px; margin:0 auto; padding:24px 20px; position:relative}
-    header {margin:0 0 18px}
-    h1 {margin:0 0 6px; font-size:24px; font-weight:600; letter-spacing:.2px}
-    .muted {color:var(--muted); font-size:14px}
+    body{font-family:ui-sans-serif,system-ui,-apple-system,"SF Pro",Roboto,Arial,sans-serif;color:var(--ink);background:var(--bg);margin:0}
+    .app{max-width:980px;margin:0 auto;padding:24px 20px;position:relative}
+    header{margin:0 0 18px}
+    h1{margin:0 0 6px;font-size:24px;font-weight:600;letter-spacing:.2px}
+    .muted{color:var(--muted);font-size:14px}
 
-    .grid {display:grid; grid-template-columns:1fr 1fr; gap:20px}
-    .card {background:var(--card); border-radius:14px; padding:16px; box-shadow:0 6px 18px rgba(0,0,0,0.06); border:1px solid var(--line)}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:20px}
+    .card{background:var(--card);border-radius:14px;padding:16px;box-shadow:0 6px 18px rgba(0,0,0,.06);border:1px solid var(--line)}
 
-    .drop {border:2px dashed var(--drop-dash); border-radius:14px; padding:22px; text-align:center; cursor:pointer; background:#fff}
-    .thumbs {display:flex; flex-wrap:wrap; gap:8px; margin-top:10px}
-    .thumb {width:84px; height:84px; border-radius:10px; overflow:hidden; position:relative; border:1px solid var(--line); background:#fafafa}
-    .thumb img {width:100%; height:100%; object-fit:cover}
+    .drop{border:2px dashed var(--drop-dash);border-radius:14px;padding:22px;text-align:center;cursor:pointer;background:#fff}
+    .thumbs{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+    .thumb{width:84px;height:84px;border-radius:10px;overflow:hidden;position:relative;border:1px solid var(--line);background:#fafafa}
+    .thumb img{width:100%;height:100%;object-fit:cover;display:block}
+    .count{display:inline-flex;align-items:center;gap:6px;background:#eef3f7;border:1px solid var(--line);color:#334155;border-radius:999px;padding:4px 10px;font-size:12px}
 
-    .controls {margin-top:14px; display:flex; flex-direction:column; gap:10px}
-    button {background:var(--accent); color:var(--accent-ink); border:none; border-radius:10px; padding:12px 16px; cursor:pointer; font-weight:600; touch-action:manipulation}
-    button.small {font-size:12px; padding:6px 10px; background:#3d4956}
-    button:disabled{opacity:.6; cursor:not-allowed}
+    .controls{margin-top:14px;display:flex;flex-direction:column;gap:10px}
+    button{background:var(--accent);color:var(--accent-ink);border:none;border-radius:10px;padding:12px 16px;cursor:pointer;font-weight:600;touch-action:manipulation}
+    button.small{font-size:12px;padding:6px 10px;background:#3d4956}
+    button:disabled{opacity:.6;cursor:not-allowed}
 
-    select, input[type=text], textarea {
-      padding:10px; border-radius:10px; border:1px solid var(--line); font:inherit; background:#fff; color:var(--ink)
+    select,input[type=text],textarea{
+      padding:10px;border-radius:10px;border:1px solid var(--line);font:inherit;background:#fff;color:var(--ink)
     }
 
-    .results {display:grid; grid-template-columns:repeat(auto-fill,minmax(160px,1fr)); gap:12px; margin-top:10px}
-    .result-card {background:#fbfbfb; border:1px solid var(--line); border-radius:12px; overflow:hidden; padding:6px; text-align:center}
-    .result-card a {display:block; text-decoration:none}
-    .result-card img {width:100%; height:auto; display:block; pointer-events:none}
+    .results{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-top:10px}
+    .result-card{background:#fbfbfb;border:1px solid var(--line);border-radius:12px;overflow:hidden;padding:6px;text-align:center}
+    .result-card a{display:block;text-decoration:none}
+    .result-card img{width:100%;height:auto;display:block;pointer-events:none}
 
-    .top-actions {display:flex; gap:8px}
+    .top-actions{display:flex;gap:8px}
+    .row{display:flex;justify-content:space-between;align-items:center;gap:12px}
 
-    @media (max-width: 900px){
+    @media (max-width:900px){
       .grid{grid-template-columns:1fr}
       .app{padding:18px 14px}
       .drop{padding:28px}
       button{width:100%}
     }
-    @media (max-width: 420px){
+    @media (max-width:420px){
       h1{font-size:20px}
       .thumb{width:72px;height:72px}
     }
@@ -64,20 +60,26 @@
   <div class="app">
     <header>
       <h1>Photo-Assistant — преобразователь фото</h1>
-      <div class="muted">Загрузите фото — выберите стиль — при необходимости добавьте описание результата — нажмите «Сгенерировать»</div>
+      <div class="muted">Загрузите фото — выберите стиль — при необходимости добавьте описание — нажмите «Сгенерировать»</div>
     </header>
 
     <div class="grid">
+      <!-- Левая колонка -->
       <div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:12px">
-          <div class="muted">Загрузите одно или несколько фотографий (пространство, гости, кухня, детали)</div>
+        <div class="row" style="margin-bottom:8px">
+          <div class="muted">Загрузите одно или несколько фото (пространство, гости, кухня, детали)</div>
           <div class="top-actions">
+            <span id="filesCount" class="count" title="Сколько фото выбрано">0 файлов</span>
             <button id="clearBtn" class="small">Очистить</button>
           </div>
         </div>
 
         <div class="drop" id="dropzone">
-          <div style="font-size:14px">Перетащите файлы сюда или <label style="color:var(--accent);cursor:pointer"><input id="fileInput" type="file" accept="image/*" multiple style="display:none">выберите</label></div>
+          <div style="font-size:14px">Перетащите файлы сюда или
+            <label style="color:var(--accent);cursor:pointer">
+              <input id="fileInput" type="file" accept="image/*" multiple style="display:none">выберите
+            </label>
+          </div>
           <div class="muted">Поддерживается загрузка нескольких фотографий</div>
           <div class="thumbs" id="thumbs"></div>
         </div>
@@ -103,12 +105,13 @@
             <button id="downloadZipBtn" class="small">Скачать ZIP</button>
           </div>
 
-          <div class="muted">Изображения обрабатываются на сервере. Результат появится справа; клик по картинке — скачивание PNG.</div>
+          <div class="muted">Обработка выполняется на сервере. В «Результатах» появятся готовые изображения; клик — сразу скачивание PNG.</div>
         </div>
       </div>
 
+      <!-- Правая колонка -->
       <div class="card">
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
+        <div class="row">
           <div><strong>Результаты</strong></div>
           <div class="muted">Клик по изображению — скачать</div>
         </div>
@@ -141,11 +144,12 @@
     const clearBtn = document.getElementById('clearBtn');
     const downloadZipBtn = document.getElementById('downloadZipBtn');
     const userPrompt = document.getElementById('userPrompt');
+    const filesCount = document.getElementById('filesCount');
 
     let files = [];
     let resultsData = []; // [{name,dataUrlPNG}]
 
-    // ------ DnD
+    // --------- Drag & Drop / выбор файлов
     ['dragover','drop'].forEach(evt => window.addEventListener(evt, e=>{ e.preventDefault(); }));
     ;['dragenter','dragover'].forEach(evt=>dropzone.addEventListener(evt,e=>{e.preventDefault();e.stopPropagation();dropzone.style.borderColor='#8fa6bb'}));
     ;['dragleave','dragend','drop'].forEach(evt=>dropzone.addEventListener(evt,e=>{e.preventDefault();e.stopPropagation();dropzone.style.borderColor='var(--drop-dash)'}));
@@ -159,7 +163,8 @@
 
     clearBtn.onclick=()=>{
       files.forEach(f=>f.url && URL.revokeObjectURL(f.url));
-      files=[]; resultsData=[]; thumbs.innerHTML=''; results.innerHTML='';
+      files=[]; updateFilesCount(); thumbs.innerHTML='';
+      resultsData=[]; results.innerHTML='';
       progressEl.style.display='none'; userPrompt.value='';
     };
 
@@ -191,6 +196,11 @@
       }catch(err){ showError('ZIP: '+(err.message||err)); }
     };
 
+    function updateFilesCount(){
+      const n = files.length;
+      filesCount.textContent = n===0 ? '0 файлов' : (n===1 ? '1 файл' : `${n} файлов`);
+    }
+
     function addFromAny(src){
       try{
         let arr = [];
@@ -204,15 +214,18 @@
         if(!arr.length){ showError('Не найдено файлов изображений'); return; }
         const allowed = ['image/jpeg','image/png','image/webp','image/gif','image/bmp','image/avif','image/heic','image/heif'];
         arr.forEach(f=>{
-          const isImg = (f.type && f.type.startsWith('image/')) || allowed.some(t=>t===f.type) || /\.(jpe?g|png|webp|gif|bmp|avif|heic|heif)$/i.test(f.name||'');
+          const isImg = (f.type && f.type.startsWith('image/')) || allowed.includes(f.type) || /\.(jpe?g|png|webp|gif|bmp|avif|heic|heif)$/i.test(f.name||'');
           if(!isImg){ return; }
           const url = URL.createObjectURL(f);
           const rec = {file:f, name:f.name, url};
           files.push(rec);
-          const d=document.createElement('div');d.className='thumb';
+
+          // превью только в thumbs
+          const d=document.createElement('div'); d.className='thumb';
           const im=new Image(); im.src=url; im.alt=f.name; d.appendChild(im);
           thumbs.appendChild(d);
         });
+        updateFilesCount();
       }catch(err){ showError('addFromAny: '+(err.message||err)); }
     }
 
@@ -227,7 +240,7 @@
     // Конвертация любого dataURL в PNG dataURL (если уже PNG — вернёт как есть)
     async function ensurePngDataUrl(dataUrl){
       try{
-        if(/^data:image\\/png;/i.test(dataUrl)) return dataUrl;
+        if(/^data:image\/png;/i.test(dataUrl)) return dataUrl;
         const img = await new Promise((res,rej)=>{
           const im=new Image();
           im.crossOrigin = 'anonymous';
@@ -241,7 +254,6 @@
         ctx.drawImage(img,0,0);
         return canv.toDataURL('image/png');
       }catch(e){
-        // в случае ошибки отдаём оригинал, чтобы не блокировать
         console.warn('ensurePngDataUrl fallback:', e);
         return dataUrl;
       }
@@ -275,7 +287,7 @@
         for (let idx=0; idx<data.images.length; idx++){
           const imgObj = data.images[idx];
           if(!imgObj || !imgObj.dataUrl) continue;
-          const base = (imgObj.filename || `${f.name||'image'}-out${idx+1}`).replace(/\\.(png|jpe?g|webp)$/i,'');
+          const base = (imgObj.filename || `${f.name||'image'}-out${idx+1}`).replace(/\.(png|jpe?g|webp)$/i,'');
           await addResultCard(imgObj.dataUrl, base);
         }
       }
