@@ -13,6 +13,8 @@
     *{box-sizing:border-box}
     html,body{height:100%}
     body{font-family:ui-sans-serif,system-ui,-apple-system,"SF Pro",Roboto,Arial,sans-serif;color:var(--ink);background:var(--bg);margin:0}
+    img{image-orientation: from-image;} /* учитываем EXIF-ориентацию при рендере */
+
     .app{max-width:980px;margin:0 auto;padding:24px 20px;position:relative}
     header{margin:0 0 18px}
     h1{margin:0 0 6px;font-size:24px;font-weight:600;letter-spacing:.2px}
@@ -23,7 +25,7 @@
 
     .drop{border:2px dashed var(--drop-dash);border-radius:14px;padding:22px;text-align:center;cursor:pointer;background:#fff}
     .thumbs{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
-    .thumb{width:84px;height:84px;border-radius:10px;overflow:hidden;position:relative;border:1px solid var(--line);background:#fafafa}
+    .thumb{width:96px;height:96px;border-radius:10px;overflow:hidden;position:relative;border:1px solid var(--line);background:#fafafa}
     .thumb img{width:100%;height:100%;object-fit:cover;display:block}
     .count{display:inline-flex;align-items:center;gap:6px;background:#eef3f7;border:1px solid var(--line);color:#334155;border-radius:999px;padding:4px 10px;font-size:12px}
 
@@ -32,23 +34,23 @@
     button.small{font-size:12px;padding:6px 10px;background:#3d4956}
     button:disabled{opacity:.6;cursor:not-allowed}
 
-    select,input[type=text],textarea{
+    select,textarea{
       padding:10px;border-radius:10px;border:1px solid var(--line);font:inherit;background:#fff;color:var(--ink)
     }
 
     .results{
       display:grid;
-      grid-template-columns:repeat(auto-fill,minmax(160px,1fr));
+      grid-template-columns:repeat(auto-fill,minmax(200px,1fr));
       gap:12px;
       margin-top:10px;
       width:100%;
     }
     .result-card{background:#fbfbfb;border:1px solid var(--line);border-radius:12px;overflow:hidden;padding:6px;text-align:center}
     .result-card a{display:block;text-decoration:none}
-    .result-card img{width:100%;height:auto;display:block;pointer-events:none}
+    .result-card img{width:100%;height:auto;display:block}
 
     .top-actions{display:flex;gap:8px}
-    .row{display:flex;justify-content:space-between;align-items:center;gap:12px}
+    .row{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
 
     @media (max-width:900px){
       .grid{grid-template-columns:1fr}
@@ -58,8 +60,8 @@
     }
     @media (max-width:420px){
       h1{font-size:20px}
-      .thumb{width:72px;height:72px}
-      .results{grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
+      .thumb{width:80px;height:80px}
+      .results{grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}
     }
   </style>
 </head>
@@ -112,7 +114,7 @@
             <button id="downloadZipBtn" class="small">Скачать ZIP</button>
           </div>
 
-          <div class="muted">Обработка выполняется на сервере. В «Результатах» появятся готовые изображения; клик — сразу скачивание PNG.</div>
+          <div class="muted">Обработка выполняется на сервере. В «Результатах» появятся готовые изображения; клик откроет их в новой вкладке.</div>
         </div>
       </div>
 
@@ -120,7 +122,10 @@
       <div class="card">
         <div class="row">
           <div><strong>Результаты</strong></div>
-          <div class="muted">Клик по изображению — скачать</div>
+          <div class="top-actions">
+            <button id="openAllBtn" class="small" title="Открыть все результаты в новых вкладках">Открыть все</button>
+            <button id="clearSavedBtn" class="small" title="Удалить сохранённые в памяти результаты">Очистить сохранённые</button>
+          </div>
         </div>
 
         <div id="progress" class="muted" style="display:none;margin:10px 0"></div>
@@ -141,6 +146,7 @@
       setTimeout(()=>div.remove(), 6000);
     }
 
+    // ---------- DOM
     const dropzone = document.getElementById('dropzone');
     const fileInput = document.getElementById('fileInput');
     const thumbs = document.getElementById('thumbs');
@@ -150,13 +156,82 @@
     const generateBtn = document.getElementById('generateBtn');
     const clearBtn = document.getElementById('clearBtn');
     const downloadZipBtn = document.getElementById('downloadZipBtn');
+    const clearSavedBtn = document.getElementById('clearSavedBtn');
+    const openAllBtn = document.getElementById('openAllBtn');
     const userPrompt = document.getElementById('userPrompt');
     const filesCount = document.getElementById('filesCount');
 
-    let files = [];
-    let resultsData = []; // [{name,dataUrlPNG}]
+    let files = [];        // [{file, name, url}] — уже ориентированные, если получилось
+    let resultsData = [];  // { name, blobUrl }
 
-    // --------- Drag & Drop / выбор файлов
+    // ---------- IndexedDB
+    const DB_NAME = 'photoAssistant';
+    const DB_VERSION = 1;
+    const STORE = 'results';
+
+    function openDB(){
+      return new Promise((resolve, reject)=>{
+        const req = indexedDB.open(DB_NAME, DB_VERSION);
+        req.onupgradeneeded = ()=>{
+          const db = req.result;
+          if (!db.objectStoreNames.contains(STORE)) {
+            db.createObjectStore(STORE, { keyPath: 'id', autoIncrement: true });
+          }
+        };
+        req.onsuccess = ()=>resolve(req.result);
+        req.onerror = ()=>reject(req.error);
+      });
+    }
+
+    async function saveResultToDB(name, blob){
+      const db = await openDB();
+      return new Promise((resolve, reject)=>{
+        const tx = db.transaction(STORE, 'readwrite');
+        tx.oncomplete = ()=>resolve();
+        tx.onerror = ()=>reject(tx.error);
+        tx.objectStore(STORE).add({ name, blob, ts: Date.now() });
+      });
+    }
+
+    async function getAllResultsFromDB(){
+      const db = await openDB();
+      return new Promise((resolve, reject)=>{
+        const tx = db.transaction(STORE, 'readonly');
+        const req = tx.objectStore(STORE).getAll();
+        req.onsuccess = ()=>resolve(req.result || []);
+        req.onerror = ()=>reject(req.error);
+      });
+    }
+
+    async function clearResultsDB(){
+      const db = await openDB();
+      return new Promise((resolve, reject)=>{
+        const tx = db.transaction(STORE, 'readwrite');
+        tx.oncomplete = ()=>resolve();
+        tx.onerror = ()=>reject(tx.error);
+        tx.objectStore(STORE).clear();
+      });
+    }
+
+    // восстановление сохранённых
+    window.addEventListener('DOMContentLoaded', async ()=>{
+      try{
+        const saved = await getAllResultsFromDB();
+        if (saved.length){
+          for (const rec of saved){
+            const url = URL.createObjectURL(rec.blob);
+            addResultCardFromBlobUrl(url, rec.name);
+          }
+          progressEl.style.display='block';
+          progressEl.textContent = `Восстановлено сохранённых изображений: ${saved.length}`;
+          setTimeout(()=>progressEl.style.display='none', 1800);
+        }
+      }catch(e){
+        console.warn('restore failed', e);
+      }
+    });
+
+    // --------- DnD / выбор
     ['dragover','drop'].forEach(evt => window.addEventListener(evt, e=>{ e.preventDefault(); }));
     ;['dragenter','dragover'].forEach(evt=>dropzone.addEventListener(evt,e=>{e.preventDefault();e.stopPropagation();dropzone.style.borderColor='#8fa6bb'}));
     ;['dragleave','dragend','drop'].forEach(evt=>dropzone.addEventListener(evt,e=>{e.preventDefault();e.stopPropagation();dropzone.style.borderColor='var(--drop-dash)'}));
@@ -171,8 +246,31 @@
     clearBtn.onclick=()=>{
       files.forEach(f=>f.url && URL.revokeObjectURL(f.url));
       files=[]; updateFilesCount(); thumbs.innerHTML='';
-      resultsData=[]; results.innerHTML='';
       progressEl.style.display='none'; userPrompt.value='';
+      // сохранённые результаты не трогаем
+    };
+
+    clearSavedBtn.onclick=async()=>{
+      try{
+        await clearResultsDB();
+        resultsData=[]; results.innerHTML='';
+        progressEl.style.display='block';
+        progressEl.textContent = 'Сохранённые изображения удалены';
+        setTimeout(()=>progressEl.style.display='none', 1400);
+      }catch(e){ showError('Не удалось очистить сохранённые: '+(e.message||e)); }
+    };
+
+    openAllBtn.onclick=()=>{
+      if (!resultsData.length){ showError('Нет результатов для открытия'); return; }
+      let i = 0;
+      const openNext = ()=>{
+        if (i >= resultsData.length) return;
+        const url = resultsData[i].blobUrl;
+        try{ window.open(url, '_blank', 'noopener'); }catch(e){}
+        i++;
+        setTimeout(openNext, 150);
+      };
+      openNext();
     };
 
     generateBtn.onclick=async()=>{
@@ -180,7 +278,7 @@
       results.innerHTML=''; resultsData=[];
       progressEl.style.display='block'; progressEl.textContent = 'Отправляю на сервер…';
       try{
-        await processOnServer(); // только серверная обработка (одним запросом)
+        await processOnServer(); // один запрос на все фото
         progressEl.textContent = 'Готово';
       }catch(err){
         showError(err);
@@ -193,19 +291,54 @@
       if(resultsData.length===0){alert('Нет результатов');return;}
       try{
         const zip=new JSZip();
-        resultsData.forEach((r,i)=>{
-          const base64=r.dataUrl.split(',')[1];
-          zip.file(`result-${i+1}.png`,base64,{base64:true});
-        });
+        for (let i=0;i<resultsData.length;i++){
+          const rec = resultsData[i];
+          const b = await (await fetch(rec.blobUrl)).blob();
+          zip.file(rec.name, b);
+        }
         const blob=await zip.generateAsync({type:'blob'});
         const url = URL.createObjectURL(blob);
-        downloadFile(url,'results.zip');
+        triggerDownload(url,'results.zip');
       }catch(err){ showError('ZIP: '+(err.message||err)); }
     };
 
     function updateFilesCount(){
       const n = files.length;
       filesCount.textContent = n===0 ? '0 файлов' : (n===1 ? '1 файл' : `${n} файлов`);
+    }
+
+    // ---------- ОРИЕНТАЦИЯ: нормализуем файл (если возможно)
+    async function normalizeOrientationFile(file){
+      // Попробуем создать bitmap с учётом EXIF и перерисовать в canvas
+      try{
+        // Safari/Chrome/Firefox: createImageBitmap поддерживается широко, но HEIC может не поддерживаться
+        const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+        const canv = document.createElement('canvas');
+        canv.width = bmp.width;
+        canv.height = bmp.height;
+        const ctx = canv.getContext('2d');
+        ctx.drawImage(bmp, 0, 0);
+
+        // Выберем формат вывода: для JPEG остаёмся JPEG, иначе — PNG
+        let outType = 'image/png';
+        if (/jpe?g$/i.test(file.name) || /image\/jpe?g/i.test(file.type)) {
+          outType = 'image/jpeg';
+        }
+
+        const blob = await new Promise(res=>canv.toBlob(res, outType, 0.95));
+        if (!blob) return file; // fallback
+
+        const ext = outType === 'image/jpeg' ? '.jpg' : '.png';
+        const base = (file.name || 'image').replace(/\.(heic|heif|png|jpe?g|webp|gif|bmp|avif)$/i,'');
+        const orientedName = base + ext;
+
+        // File из Blob чтобы не потерять имя (не все браузеры поддерживают File, но современные — да)
+        const orientedFile = new File([blob], orientedName, { type: outType, lastModified: Date.now() });
+        return orientedFile;
+      }catch(e){
+        // если что-то пошло не так — вернём исходный файл
+        return file;
+      }
     }
 
     function addFromAny(src){
@@ -220,23 +353,27 @@
         }
         if(!arr.length){ showError('Не найдено файлов изображений'); return; }
         const allowed = ['image/jpeg','image/png','image/webp','image/gif','image/bmp','image/avif','image/heic','image/heif'];
-        arr.forEach(f=>{
-          const isImg = (f.type && f.type.startsWith('image/')) || allowed.includes(f.type) || /\.(jpe?g|png|webp|gif|bmp|avif|heic|heif)$/i.test(f.name||'');
-          if(!isImg){ return; }
-          const url = URL.createObjectURL(f);
-          const rec = {file:f, name:f.name, url};
-          files.push(rec);
+        // Обрабатываем асинхронно — с нормализацией ориентации по очереди
+        (async ()=>{
+          for (const f of arr){
+            const isImg = (f.type && f.type.startsWith('image/')) || allowed.includes(f.type) || /\.(jpe?g|png|webp|gif|bmp|avif|heic|heif)$/i.test(f.name||'');
+            if(!isImg) continue;
 
-          // превью только в thumbs
-          const d=document.createElement('div'); d.className='thumb';
-          const im=new Image(); im.src=url; im.alt=f.name; d.appendChild(im);
-          thumbs.appendChild(d);
-        });
-        updateFilesCount();
+            const oriented = await normalizeOrientationFile(f);
+            const url = URL.createObjectURL(oriented);
+            const rec = {file: oriented, name: oriented.name, url};
+            files.push(rec);
+
+            const d=document.createElement('div'); d.className='thumb';
+            const im=new Image(); im.src=url; im.alt=oriented.name; d.appendChild(im);
+            thumbs.appendChild(d);
+          }
+          updateFilesCount();
+        })();
       }catch(err){ showError('addFromAny: '+(err.message||err)); }
     }
 
-    function downloadFile(href,filename){
+    function triggerDownload(href,filename){
       const a=document.createElement('a');
       a.href=href; a.download=filename;
       document.body.appendChild(a);
@@ -244,59 +381,52 @@
       a.remove();
     }
 
-    // Конвертация любого dataURL в PNG dataURL (если уже PNG — вернёт как есть)
-    async function ensurePngDataUrl(dataUrl){
-      try{
-        if(/^data:image\/png;/i.test(dataUrl)) return dataUrl;
-        const img = await new Promise((res,rej)=>{
-          const im=new Image();
-          im.crossOrigin = 'anonymous';
-          im.onload=()=>res(im);
-          im.onerror=()=>rej(new Error('Не удалось загрузить изображение для конвертации'));
-          im.src=dataUrl;
-        });
-        const canv=document.createElement('canvas');
-        canv.width=img.width; canv.height=img.height;
-        const ctx=canv.getContext('2d');
-        ctx.drawImage(img,0,0);
-        return canv.toDataURL('image/png');
-      }catch(e){
-        console.warn('ensurePngDataUrl fallback:', e);
-        return dataUrl;
-      }
+    async function dataUrlToPngBlob(dataUrl){
+      const res = await fetch(dataUrl);
+      const blob = await res.blob();
+      if (blob.type === 'image/png') return blob;
+
+      const img = await new Promise((res,rej)=>{
+        const im=new Image();
+        im.crossOrigin = 'anonymous';
+        im.onload=()=>res(im);
+        im.onerror=()=>rej(new Error('Не удалось загрузить изображение'));
+        im.src=dataUrl;
+      });
+      const canv=document.createElement('canvas');
+      canv.width=img.width; canv.height=img.height;
+      const ctx=canv.getContext('2d');
+      ctx.drawImage(img,0,0);
+      return await new Promise(r=>canv.toBlob(r,'image/png'));
     }
 
-    // ---- карточка результата (скачивание PNG, плюс "Открыть в новой вкладке")
-    async function addResultCard(dataUrl, filenameBase){
-      const pngUrl = await ensurePngDataUrl(dataUrl);
-
-      // гарантируем одно расширение .png
-      const cleanBase = (filenameBase || 'image').replace(/\.png$/i,'');
-      const fileName = cleanBase + '.png';
+    function addResultCardFromBlobUrl(blobUrl, filename){
+      const cleanBase = (filename || 'image').replace(/\.png$/i,'');
+      const a=document.createElement('a');
+      a.href = blobUrl;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      const img=document.createElement('img');
+      img.src = blobUrl;
+      img.alt = cleanBase;
 
       const card=document.createElement('div'); card.className='result-card';
-
-      // ссылка "скачать"
-      const a=document.createElement('a'); a.href=pngUrl; a.download=fileName;
-      const img=document.createElement('img'); img.src=pngUrl; img.alt=cleanBase;
       a.appendChild(img);
-
-      // ссылка "открыть в новой вкладке" — удобно для сохранения в «Фото»
-      const openBtn = document.createElement('a');
-      openBtn.href = pngUrl;
-      openBtn.target = '_blank';
-      openBtn.rel = 'noopener';
-      openBtn.textContent = 'Открыть';
-      openBtn.style.cssText = 'display:inline-block;margin-top:6px;font-size:12px;color:#3a5a78;text-decoration:underline';
-
       card.appendChild(a);
-      card.appendChild(openBtn);
       results.appendChild(card);
 
-      resultsData.push({ name: fileName, dataUrl: pngUrl });
+      resultsData.push({ name: cleanBase+'.png', blobUrl });
     }
 
-    // ---- Серверная обработка (ОДИН запрос на все фото)
+    async function addResultCardFromDataUrl(dataUrl, filenameBase){
+      const cleanBase = (filenameBase || 'image').replace(/\.png$/i,'');
+      const pngBlob = await dataUrlToPngBlob(dataUrl);
+      const blobUrl = URL.createObjectURL(pngBlob);
+      addResultCardFromBlobUrl(blobUrl, cleanBase+'.png');
+      try{ await saveResultToDB(cleanBase+'.png', pngBlob); }catch(e){ console.warn('save to DB failed', e); }
+    }
+
+    // ---- один запрос на все фото
     async function processOnServer(){
       const url = DEFAULT_ENDPOINT;
 
@@ -316,13 +446,12 @@
         throw new Error('Неожиданный ответ сервера');
       }
 
-      // рендерим только сгенерированные результаты
       for (let idx = 0; idx < data.images.length; idx++) {
         const imgObj = data.images[idx];
         if(!imgObj || !imgObj.dataUrl) continue;
         const original = files[idx]?.name || `image-${idx+1}`;
         const base = original.replace(/\.(png|jpe?g|webp|gif|bmp|avif|heic|heif)$/i,'') + '-out';
-        await addResultCard(imgObj.dataUrl, base);
+        await addResultCardFromDataUrl(imgObj.dataUrl, base);
       }
     }
   </script>
