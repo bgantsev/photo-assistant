@@ -16,11 +16,9 @@
       --accent-ink: #ffffff;
       --drop-dash: #c9cfd6;
     }
-
     *{box-sizing:border-box}
     html,body{height:100%}
     body {font-family: ui-sans-serif, system-ui, -apple-system, "SF Pro", Roboto, Arial, sans-serif; color:var(--ink); background:var(--bg); margin:0}
-
     .app {max-width: 980px; margin:0 auto; padding:24px 20px; position:relative}
     header {margin:0 0 18px}
     h1 {margin:0 0 6px; font-size:24px; font-weight:600; letter-spacing:.2px}
@@ -50,7 +48,6 @@
 
     .top-actions {display:flex; gap:8px}
 
-    /* Мобильная адаптация */
     @media (max-width: 900px){
       .grid{grid-template-columns:1fr}
       .app{padding:18px 14px}
@@ -71,7 +68,6 @@
     </header>
 
     <div class="grid">
-      <!-- Левая колонка -->
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;gap:12px">
           <div class="muted">Загрузите одно или несколько фотографий (пространство, гости, кухня, детали)</div>
@@ -86,7 +82,6 @@
           <div class="thumbs" id="thumbs"></div>
         </div>
 
-        <!-- Поле: Ваш prompt -->
         <div class="controls">
           <label for="userPrompt">Ваш prompt</label>
           <textarea id="userPrompt" rows="2" placeholder="Например: add soft daylight, cinematic mood, fine details"></textarea>
@@ -106,14 +101,12 @@
           <div style="display:flex;gap:8px;margin-top:6px;flex-wrap:wrap;align-items:center">
             <button id="generateBtn">Сгенерировать</button>
             <button id="downloadZipBtn" class="small">Скачать ZIP</button>
-            <!-- чекбокса и поля эндпоинта больше нет — используем константу -->
           </div>
 
-          <div class="muted">Изображения обрабатываются на сервере. Результат появится справа; клик по картинке — скачивание.</div>
+          <div class="muted">Изображения обрабатываются на сервере. Результат появится справа; клик по картинке — скачивание PNG.</div>
         </div>
       </div>
 
-      <!-- Правая колонка -->
       <div class="card">
         <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
           <div><strong>Результаты</strong></div>
@@ -127,7 +120,6 @@
   </div>
 
   <script>
-    // ===== Константы/ссылки на DOM
     const DEFAULT_ENDPOINT = 'https://photo-assistant-backend.onrender.com/api/transform';
 
     function showError(msg){
@@ -151,9 +143,9 @@
     const userPrompt = document.getElementById('userPrompt');
 
     let files = [];
-    let resultsData = [];
+    let resultsData = []; // [{name,dataUrlPNG}]
 
-    // ===== DnD
+    // ------ DnD
     ['dragover','drop'].forEach(evt => window.addEventListener(evt, e=>{ e.preventDefault(); }));
     ;['dragenter','dragover'].forEach(evt=>dropzone.addEventListener(evt,e=>{e.preventDefault();e.stopPropagation();dropzone.style.borderColor='#8fa6bb'}));
     ;['dragleave','dragend','drop'].forEach(evt=>dropzone.addEventListener(evt,e=>{e.preventDefault();e.stopPropagation();dropzone.style.borderColor='var(--drop-dash)'}));
@@ -163,7 +155,6 @@
         addFromAny(list);
       }catch(err){ showError('Не удалось обработать перетаскивание: '+ (err.message||err)); }
     });
-
     fileInput.addEventListener('change',e=> addFromAny(e.target.files));
 
     clearBtn.onclick=()=>{
@@ -177,15 +168,10 @@
       results.innerHTML=''; resultsData=[];
       progressEl.style.display='block'; progressEl.textContent = 'Отправляю на сервер…';
       try{
-        await processOnServer();         // всегда сервер
+        await processOnServer(); // только серверная обработка
         progressEl.textContent = 'Готово';
       }catch(err){
         showError(err);
-        // мягкий фоллбэк на локальную эмуляцию, чтобы не стоять совсем без результата
-        try{
-          progressEl.textContent = 'Сервер недоступен, локальная обработка…';
-          await processLocally();
-        }catch(e){ showError(e); }
       }finally{
         setTimeout(()=>{ progressEl.style.display='none'; }, 1200);
       }
@@ -205,7 +191,6 @@
       }catch(err){ showError('ZIP: '+(err.message||err)); }
     };
 
-    // ===== Утилиты
     function addFromAny(src){
       try{
         let arr = [];
@@ -217,41 +202,18 @@
           arr = Array.from(src).map(x=>x.getAsFile()).filter(Boolean);
         }
         if(!arr.length){ showError('Не найдено файлов изображений'); return; }
-        const allowed = ['image/jpeg','image/png','image/webp','image/gif','image/bmp','image/avif'];
+        const allowed = ['image/jpeg','image/png','image/webp','image/gif','image/bmp','image/avif','image/heic','image/heif'];
         arr.forEach(f=>{
-          const isImg = (f.type && f.type.startsWith('image/')) || allowed.some(t=>t===f.type) || /\.(jpe?g|png|webp|gif|bmp|avif)$/i.test(f.name||'');
+          const isImg = (f.type && f.type.startsWith('image/')) || allowed.some(t=>t===f.type) || /\.(jpe?g|png|webp|gif|bmp|avif|heic|heif)$/i.test(f.name||'');
           if(!isImg){ return; }
           const url = URL.createObjectURL(f);
           const rec = {file:f, name:f.name, url};
           files.push(rec);
-
-          // превью
           const d=document.createElement('div');d.className='thumb';
           const im=new Image(); im.src=url; im.alt=f.name; d.appendChild(im);
           thumbs.appendChild(d);
-
-          // сразу отображаем исходник и делаем кликабельным для скачивания
-          addResultCard(url, f.name || 'image');
         });
       }catch(err){ showError('addFromAny: '+(err.message||err)); }
-    }
-
-    function loadImageFromFile(file){
-      return new Promise((res,rej)=>{
-        try{
-          const reader = new FileReader();
-          reader.onerror = ()=> rej(new Error('Не удалось прочитать файл: '+(file && file.name ? file.name: '')));
-          reader.onload = ()=>{
-            try{
-              const img = new Image();
-              img.onload = ()=> res(img);
-              img.onerror = ()=> rej(new Error('Изображение повреждено или неподдерживаемый формат: '+(file && file.name ? file.name: '')));
-              img.src = reader.result;
-            }catch(e){ rej(e); }
-          };
-          reader.readAsDataURL(file);
-        }catch(err){ rej(err); }
-      });
     }
 
     function downloadFile(href,filename){
@@ -262,57 +224,41 @@
       a.remove();
     }
 
-    function addResultCard(dataUrl, filenameBase){
+    // Конвертация любого dataURL в PNG dataURL (если уже PNG — вернёт как есть)
+    async function ensurePngDataUrl(dataUrl){
+      try{
+        if(/^data:image\\/png;/i.test(dataUrl)) return dataUrl;
+        const img = await new Promise((res,rej)=>{
+          const im=new Image();
+          im.crossOrigin = 'anonymous';
+          im.onload=()=>res(im);
+          im.onerror=()=>rej(new Error('Не удалось загрузить изображение для конвертации'));
+          im.src=dataUrl;
+        });
+        const canv=document.createElement('canvas');
+        canv.width=img.width; canv.height=img.height;
+        const ctx=canv.getContext('2d');
+        ctx.drawImage(img,0,0);
+        return canv.toDataURL('image/png');
+      }catch(e){
+        // в случае ошибки отдаём оригинал, чтобы не блокировать
+        console.warn('ensurePngDataUrl fallback:', e);
+        return dataUrl;
+      }
+    }
+
+    async function addResultCard(dataUrl, filenameBase){
+      const pngUrl = await ensurePngDataUrl(dataUrl);
       const card=document.createElement('div'); card.className='result-card';
-      const a=document.createElement('a'); a.href=dataUrl; a.download=(filenameBase||'image')+'.png';
-      const img=document.createElement('img'); img.src=dataUrl; img.alt=filenameBase||'result';
+      const a=document.createElement('a'); a.href=pngUrl; a.download=(filenameBase||'image')+'.png';
+      const img=document.createElement('img'); img.src=pngUrl; img.alt=filenameBase||'result';
       a.appendChild(img);
       card.appendChild(a);
       results.appendChild(card);
-      // сохраняем для ZIP
-      resultsData.push({ name: (filenameBase||'image')+'.png', dataUrl });
+      resultsData.push({ name: (filenameBase||'image')+'.png', dataUrl: pngUrl });
     }
 
-    // ===== Локальная эмуляция (fallback)
-    async function applyStyleEffect(canvas,style,str){
-      const ctx=canvas.getContext('2d');
-      const id=ctx.getImageData(0,0,canvas.width,canvas.height);
-      const d=id.data; const clamp=(v)=>Math.max(0,Math.min(255,v));
-      if(style==='pencil'){
-        for(let i=0;i<d.length;i+=4){ const g=(d[i]+d[i+1]+d[i+2])/3; const shade = g*(1-str); d[i]=d[i+1]=d[i+2]=shade; }
-      } else if(style==='watercolor'){
-        for(let i=0;i<d.length;i+=4){ d[i]=d[i]-(d[i]%32); d[i+1]=d[i+1]-(d[i+1]%32); d[i+2]=d[i+2]-(d[i+2]%32);}
-      } else if(style==='oil'){
-        for(let i=0;i<d.length;i+=4){ d[i]=clamp(d[i]*(1-str)+128*str); d[i+1]=clamp(d[i+1]*(1-str)+128*str); d[i+2]=clamp(d[i+2]*(1-str)+128*str);}
-      } else if(style==='colored_pencils'){
-        for(let i=0;i<d.length;i+=4){ const avg=(d[i]+d[i+1]+d[i+2])/3; d[i]=clamp(avg*(1-str)+d[i]*str); d[i+1]=clamp(avg*(1-str)+d[i+1]*str); d[i+2]=clamp(avg*(1-str)+d[i+2]*str);}
-      } else if(style==='markers'){
-        for(let i=0;i<d.length;i+=4){ d[i]=Math.round(d[i]/64)*64; d[i+1]=Math.round(d[i+1]/64)*64; d[i+2]=Math.round(d[i+2]/64)*64; }
-      } else if(style==='photo_real'){
-        for(let i=0;i<d.length;i+=4){ d[i]=clamp(d[i]*1.1); d[i+1]=clamp(d[i+1]*1.1); d[i+2]=clamp(d[i+2]*1.1);}
-      }
-      ctx.putImageData(id,0,0);
-    }
-
-    async function processLocally(){
-      const intensityFallback = 0.7; // фикс вместо удалённого слайдера
-      for(let i=0;i<files.length;i++){
-        progressEl.textContent = `Локальная обработка ${i+1}/${files.length}…`;
-        const f = files[i];
-        try{
-          const img=await loadImageFromFile(f.file || f);
-          const canv=document.createElement('canvas');
-          canv.width=img.width;canv.height=img.height;
-          const ctx=canv.getContext('2d');
-          ctx.drawImage(img,0,0);
-          await applyStyleEffect(canv,styleSelect.value, intensityFallback);
-          const dataUrl=canv.toDataURL('image/png');
-          addResultCard(dataUrl, (f.name||f.file?.name||'image') + '-local');
-        }catch(err){ showError('Ошибка обработки '+(f.name||'файла')+': '+(err.message||err)); }
-      }
-    }
-
-    // ===== Серверная обработка (всегда)
+    // ---- Серверная обработка
     async function processOnServer(){
       const url = DEFAULT_ENDPOINT;
       for(let i=0;i<files.length;i++){
@@ -326,10 +272,12 @@
         if(!resp.ok){ throw new Error('Сервер вернул статус '+resp.status); }
         const data = await resp.json();
         if(!data || !Array.isArray(data.images) || !data.images.length){ throw new Error('Неожиданный ответ сервера'); }
-        data.images.forEach((imgObj, idx)=>{
-          if(!imgObj || !imgObj.dataUrl){ return; }
-          addResultCard(imgObj.dataUrl, (imgObj.filename || `${f.name||'image'}-out${idx+1}.png`).replace(/\.png$/i,''));
-        });
+        for (let idx=0; idx<data.images.length; idx++){
+          const imgObj = data.images[idx];
+          if(!imgObj || !imgObj.dataUrl) continue;
+          const base = (imgObj.filename || `${f.name||'image'}-out${idx+1}`).replace(/\\.(png|jpe?g|webp)$/i,'');
+          await addResultCard(imgObj.dataUrl, base);
+        }
       }
     }
   </script>
