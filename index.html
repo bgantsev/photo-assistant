@@ -36,7 +36,13 @@
       padding:10px;border-radius:10px;border:1px solid var(--line);font:inherit;background:#fff;color:var(--ink)
     }
 
-    .results{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px;margin-top:10px}
+    .results{
+      display:grid;
+      grid-template-columns:repeat(auto-fill,minmax(160px,1fr));
+      gap:12px;
+      margin-top:10px;
+      width:100%;
+    }
     .result-card{background:#fbfbfb;border:1px solid var(--line);border-radius:12px;overflow:hidden;padding:6px;text-align:center}
     .result-card a{display:block;text-decoration:none}
     .result-card img{width:100%;height:auto;display:block;pointer-events:none}
@@ -53,6 +59,7 @@
     @media (max-width:420px){
       h1{font-size:20px}
       .thumb{width:72px;height:72px}
+      .results{grid-template-columns:repeat(auto-fill,minmax(140px,1fr))}
     }
   </style>
 </head>
@@ -173,7 +180,7 @@
       results.innerHTML=''; resultsData=[];
       progressEl.style.display='block'; progressEl.textContent = 'Отправляю на сервер…';
       try{
-        await processOnServer(); // только серверная обработка
+        await processOnServer(); // только серверная обработка (одним запросом)
         progressEl.textContent = 'Готово';
       }catch(err){
         showError(err);
@@ -259,37 +266,63 @@
       }
     }
 
+    // ---- карточка результата (скачивание PNG, плюс "Открыть в новой вкладке")
     async function addResultCard(dataUrl, filenameBase){
       const pngUrl = await ensurePngDataUrl(dataUrl);
+
+      // гарантируем одно расширение .png
+      const cleanBase = (filenameBase || 'image').replace(/\.png$/i,'');
+      const fileName = cleanBase + '.png';
+
       const card=document.createElement('div'); card.className='result-card';
-      const a=document.createElement('a'); a.href=pngUrl; a.download=(filenameBase||'image')+'.png';
-      const img=document.createElement('img'); img.src=pngUrl; img.alt=filenameBase||'result';
+
+      // ссылка "скачать"
+      const a=document.createElement('a'); a.href=pngUrl; a.download=fileName;
+      const img=document.createElement('img'); img.src=pngUrl; img.alt=cleanBase;
       a.appendChild(img);
+
+      // ссылка "открыть в новой вкладке" — удобно для сохранения в «Фото»
+      const openBtn = document.createElement('a');
+      openBtn.href = pngUrl;
+      openBtn.target = '_blank';
+      openBtn.rel = 'noopener';
+      openBtn.textContent = 'Открыть';
+      openBtn.style.cssText = 'display:inline-block;margin-top:6px;font-size:12px;color:#3a5a78;text-decoration:underline';
+
       card.appendChild(a);
+      card.appendChild(openBtn);
       results.appendChild(card);
-      resultsData.push({ name: (filenameBase||'image')+'.png', dataUrl: pngUrl });
+
+      resultsData.push({ name: fileName, dataUrl: pngUrl });
     }
 
-    // ---- Серверная обработка
+    // ---- Серверная обработка (ОДИН запрос на все фото)
     async function processOnServer(){
       const url = DEFAULT_ENDPOINT;
-      for(let i=0;i<files.length;i++){
-        progressEl.textContent = `Отправка ${i+1}/${files.length} на сервер…`;
+
+      const fd = new FormData();
+      fd.append('style', styleSelect.value);
+      fd.append('prompt', (userPrompt.value || ''));
+      for (let i = 0; i < files.length; i++) {
         const f = files[i];
-        const fd = new FormData();
-        fd.append('style', styleSelect.value);
-        fd.append('prompt', (userPrompt.value || ''));
-        fd.append('photos', f.file || f, (f.name || 'image'));
-        const resp = await fetch(url, { method:'POST', body: fd });
-        if(!resp.ok){ throw new Error('Сервер вернул статус '+resp.status); }
-        const data = await resp.json();
-        if(!data || !Array.isArray(data.images) || !data.images.length){ throw new Error('Неожиданный ответ сервера'); }
-        for (let idx=0; idx<data.images.length; idx++){
-          const imgObj = data.images[idx];
-          if(!imgObj || !imgObj.dataUrl) continue;
-          const base = (imgObj.filename || `${f.name||'image'}-out${idx+1}`).replace(/\.(png|jpe?g|webp)$/i,'');
-          await addResultCard(imgObj.dataUrl, base);
-        }
+        fd.append('photos', f.file || f, (f.name || `image-${i+1}.jpg`));
+      }
+
+      progressEl.textContent = `Отправка ${files.length} фото на сервер…`;
+      const resp = await fetch(url, { method:'POST', body: fd });
+      if(!resp.ok){ throw new Error('Сервер вернул статус '+resp.status); }
+      const data = await resp.json();
+      if(!data || !Array.isArray(data.images) || !data.images.length){
+        throw new Error('Неожиданный ответ сервера');
+      }
+
+      // рендерим только сгенерированные результаты
+      for (let idx = 0; idx < data.images.length; idx++) {
+        const imgObj = data.images[idx];
+        if(!imgObj || !imgObj.dataUrl) continue;
+        const original = files[idx]?.name || `image-${idx+1}`;
+        const base = original.replace(/\.(png|jpe?g|webp|gif|bmp|avif|heic|heif)$/i,'') + '-out';
+        await addResultCard(imgObj.dataUrl, base);
       }
     }
   </script>
